@@ -2,16 +2,79 @@
 
 Portable shared skill management for AI coding agents.
 
-`manage-skills` installs a global shared skill hub, links shared skills into supported
-AI coding agents, and helps avoid copying the same skill into every agent's private
-directory.
+`manage-skills` helps AI agents install reusable skills into one shared hub, then
+link those skills into supported coding agents such as Codex and Claude Code.
 
-## Install
+## Install Or Update Skills With AI
+
+This is the preferred interface. Paste one of these prompts into Codex, Claude
+Code, or another coding agent on a machine where `manage-skills` is installed.
+
+Install one skill:
+
+```text
+Please install this reusable skill following the manage-skills convention:
+https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+Update one skill:
+
+```text
+Please update this reusable skill following the manage-skills convention:
+https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+Install every skill from a collection repository:
+
+```text
+Please install all reusable skills from this repository following the manage-skills convention:
+https://github.com/Hilbert2048/skills
+```
+
+The agent should inspect the source, install or update the canonical copy under
+`~/.ai-skills/<skill-name>`, then link supported agents to that shared copy. The
+scripts are atomic helper tools for the agent, not the main user experience.
+
+## Command Shortcuts
+
+Use these when you prefer a terminal command or want to give an agent a precise
+helper command.
+
+Install from a GitHub tree URL:
+
+```bash
+~/.ai-skills/bin/manage-skills https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+Update an installed skill:
+
+```bash
+~/.ai-skills/bin/manage-skills update https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+Install all skills from a collection repository:
+
+```bash
+~/.ai-skills/bin/manage-skills https://github.com/Hilbert2048/skills
+```
+
+The lower-level command is also available:
+
+```bash
+~/.ai-skills/bin/install-skill https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+~/.ai-skills/bin/install-skill --replace https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+If a source repository has an unusual layout, let the agent inspect it and use
+`install-skill`, `link-skill`, or a safe manual copy while preserving the same
+shared-hub rule.
+
+## Install manage-skills
 
 Most users can paste this repository URL into Codex or Claude Code and ask:
 
 ```text
-Install https://github.com/Hilbert2048/manage-skills for Codex and Claude.
+Please install https://github.com/Hilbert2048/manage-skills for Codex and Claude.
 ```
 
 Manual install:
@@ -32,6 +95,20 @@ tmp="$(mktemp -d)" && \
 
 The installer is idempotent. It will not overwrite an existing real
 `manage-skills` directory unless you pass `--replace`.
+
+## Supported Agents
+
+Current automated support:
+
+| Agent | Status |
+| --- | --- |
+| Codex | Installed and linked automatically |
+| Claude Code | Installed and linked automatically |
+| Cursor | Supported through project `.cursor/rules/*.mdc` adapters |
+
+High-priority future adapters include Gemini / Gemini CLI, Google Antigravity,
+GitHub Copilot coding agent or Chat, GLM / Zhipu coding agents, and Kimi /
+Moonshot coding agents.
 
 ## What It Sets Up
 
@@ -56,71 +133,33 @@ It also links this skill into supported agents:
 And it appends shared-skill installation rules to the global Codex and Claude
 instruction files when they are missing.
 
-## Supported Agents
+## How It Works
 
-Current automated support:
+The core rule is simple: keep reusable skills in a shared hub first, then use
+thin links or adapters for each coding agent.
 
-| Agent | Status |
-| --- | --- |
-| Codex | Installed and linked automatically |
-| Claude Code | Installed and linked automatically |
-| Cursor | Supported through project `.cursor/rules/*.mdc` adapters |
-
-High-priority future adapters include Gemini / Gemini CLI, Google Antigravity,
-GitHub Copilot coding agent or Chat, GLM / Zhipu coding agents, and Kimi /
-Moonshot coding agents.
-
-## Install Or Update Skills
-
-The preferred interface is AI-assisted. Paste one of these prompts into Codex or Claude Code.
-
-Install one skill:
+Default shared hub:
 
 ```text
-请按 manage-skills 规范安装这个可复用 skill:
-https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+~/.ai-skills/<skill-name>/SKILL.md
 ```
 
-Update one skill:
+Agent links:
 
 ```text
-请按 manage-skills 规范更新这个可复用 skill:
-https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+~/.codex/skills/<skill-name>  -> ~/.ai-skills/<skill-name>
+~/.claude/skills/<skill-name> -> ~/.ai-skills/<skill-name>
 ```
 
-Install all skills from a collection repo:
+Project-specific skills should live with the project, such as:
 
 ```text
-请按 manage-skills 规范安装这个仓库里的所有可复用 skills:
-https://github.com/Hilbert2048/skills
+<project>/.ai-skills/<skill-name>/SKILL.md
 ```
 
-The agent should inspect the source, keep the canonical copy under `~/.ai-skills/<skill-name>`,
-and link supported agents to that shared copy. The scripts below are helper tools for the
-agent or for users who prefer commands.
-
-## Command Shortcuts
-
-Install a skill from a GitHub tree URL:
-
-```bash
-~/.ai-skills/bin/install-skill https://github.com/Hilbert2048/skills/tree/main/root-cause-first
-```
-
-The shorthand dispatcher works too:
-
-```bash
-~/.ai-skills/bin/manage-skills https://github.com/Hilbert2048/skills/tree/main/root-cause-first
-```
-
-Update an already installed skill:
-
-```bash
-~/.ai-skills/bin/install-skill --replace https://github.com/Hilbert2048/skills/tree/main/root-cause-first
-```
-
-These commands are intentionally small building blocks. If a repository has an unusual layout, let the agent
-inspect it and use `install-skill`, `link-skill`, or a safe manual copy as needed.
+Agent-specific files should normally stay thin and point back to the shared
+source. Do not copy reusable skills directly into only one agent-private
+directory unless the user explicitly wants a tool-specific install.
 
 ## Authoring And Linking
 
@@ -163,6 +202,3 @@ scripts/new-skill
 scripts/link-skill
 scripts/migrate-skill
 ```
-
-The core rule is simple: keep reusable skills in a shared hub first, then use
-thin links or adapters for each coding agent.
