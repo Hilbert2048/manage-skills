@@ -99,8 +99,16 @@ Reusable or cross-project skills MUST be installed once under \`$hub_display/<sk
 agent-specific directories. Do not install a reusable skill directly into only one agent's private skill
 directory unless the user confirms that it is tool-specific.
 
-When the user asks to install a skill from a GitHub URL, GitHub tree URL, repository URL, local folder, or a
-\`/manage-skills <url>\` style prompt, use:
+When the user asks to install or update a skill from a GitHub URL, GitHub tree URL, repository URL, local
+folder, or a \`/manage-skills <url>\` style prompt, treat it as an AI-assisted install request:
+
+- inspect the source enough to identify the skill directory or collection;
+- install or update the canonical copy under \`$hub_display/<skill-name>\`;
+- link supported agents to that shared copy;
+- use the commands below as atomic helpers when they fit the source layout;
+- if the source layout is unusual, handle it manually while preserving the same hub-first rule.
+
+Install shortcut:
 
 \`\`\`bash
 $hub_display/bin/install-skill <url-or-path>

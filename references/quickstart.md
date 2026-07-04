@@ -91,7 +91,37 @@ bash manage-skills/scripts/install --hub /path/to/skills-hub
 bash manage-skills/scripts/install --agents codex,claude
 ```
 
-## Commands
+## AI-Assisted Skill Install And Update
+
+The preferred user experience is to ask an AI coding agent. The agent should inspect the source and use the
+scripts as atomic helpers, not treat the user as the script runner.
+
+Install one skill:
+
+```text
+请按 manage-skills 规范安装这个可复用 skill:
+https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+Update one skill:
+
+```text
+请按 manage-skills 规范更新这个可复用 skill:
+https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+Install all skills from a collection repo:
+
+```text
+请按 manage-skills 规范安装这个仓库里的所有可复用 skills:
+https://github.com/Hilbert2048/skills
+```
+
+When a user asks an agent `/manage-skills <url>` or "install/update this skill URL", the agent should run the
+same shared-hub flow: inspect the source, install or update the canonical copy under
+`~/.ai-skills/<skill-name>`, then link it into supported agents.
+
+## Command Shortcuts
 
 Install a skill from a GitHub tree URL:
 
@@ -105,15 +135,16 @@ The shorter dispatcher form is:
 ~/.ai-skills/bin/manage-skills https://github.com/Hilbert2048/skills/tree/main/root-cause-first
 ```
 
-When a user asks an agent `/manage-skills <url>` or "install this skill URL", the agent should run the same
-shared-hub install flow: install the canonical copy under `~/.ai-skills/<skill-name>`, then link it into the
-supported agents.
-
 Update an already installed skill:
 
 ```bash
 ~/.ai-skills/bin/install-skill --replace https://github.com/Hilbert2048/skills/tree/main/root-cause-first
 ```
+
+Use these commands as reliable shortcuts. If a source repo has an unusual layout, the agent should inspect it
+and use `install-skill`, `link-skill`, or a safe manual copy as needed.
+
+## Authoring And Linking
 
 Create and link a new global shared skill:
 

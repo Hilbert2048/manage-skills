@@ -29,22 +29,25 @@ the full skill content.
 
 1. Decide placement with `references/architecture.md`.
 2. If installing this management skill on a new machine, run `scripts/install`.
-3. If installing a shared skill from a GitHub URL, GitHub tree URL, repo URL, or local folder, run
-   `scripts/install-skill <url-or-path>`.
+3. If installing or updating a shared skill from a GitHub URL, GitHub tree URL, repo URL, or local folder,
+   orchestrate the install in the shared hub first. Use `scripts/install-skill <url-or-path>` when the source
+   matches its supported patterns; otherwise inspect the source and perform the same safe hub-first flow.
 4. For global shared skills created locally, use `scripts/new-skill` or `scripts/link-skill`.
 5. For existing agent-private skills, migrate the canonical copy into the shared hub before linking.
 6. Keep agent-specific files as symlinks or thin adapters.
 7. For Cursor, create `.cursor/rules/*.mdc` adapters that point to shared or project docs.
 
-When a user asks `/manage-skills <url>` or "install this skill URL", treat it as a request to install that
-reusable skill into the shared hub first, then link it into supported agents. Do not copy reusable skills
-directly into only one agent-private directory unless the user explicitly confirms that intent.
+When a user asks `/manage-skills <url>` or "install/update this skill URL", treat it as an AI-assisted request:
+inspect the source, install or update the canonical copy under the shared hub, then link it into supported
+agents. Use scripts as reliable atomic helpers, but handle unusual repository layouts or existing local state
+with judgment. Do not copy reusable skills directly into only one agent-private directory unless the user
+explicitly confirms that intent.
 
 ## Scripts
 
 - `scripts/install`: one-command installer for the management skill itself.
-- `scripts/install-skill`: install one skill from a GitHub tree URL, a repo containing skill folders, or a
-  local skill directory, then link it into supported agents.
+- `scripts/install-skill`: atomic helper to install one skill from a GitHub tree URL, a repo containing skill
+  folders, or a local skill directory, then link it into supported agents.
 - `scripts/manage-skills`: small command dispatcher; `manage-skills <url>` delegates to `install-skill`.
 - `scripts/new-skill`: scaffold a portable global shared skill and link it into supported agents.
 - `scripts/link-skill`: link an existing shared skill into supported agents.
