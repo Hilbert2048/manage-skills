@@ -58,7 +58,7 @@ The compatibility rule is: share the canonical skill content once, then add thin
 For AI-assisted installation, give the agent the URL or folder for this skill and ask:
 
 ```text
-Install this manage-skills skill for Codex and Claude.
+Install https://github.com/Hilbert2048/manage-skills for Codex and Claude.
 ```
 
 The agent should clone or download the folder, then run:
@@ -70,8 +70,9 @@ bash manage-skills/scripts/install
 Manual one-command install after cloning:
 
 ```bash
-git clone <repo-url> /tmp/manage-skills
-bash /tmp/manage-skills/scripts/install
+tmp="$(mktemp -d)" && \
+  git clone https://github.com/Hilbert2048/manage-skills.git "$tmp/manage-skills" && \
+  bash "$tmp/manage-skills/scripts/install"
 ```
 
 The installer:
