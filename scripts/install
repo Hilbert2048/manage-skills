@@ -122,6 +122,7 @@ $hub_display/bin/link-skill <skill-name>
 Agent directories should normally be symlinks to the shared source. The canonical management skill is
 \`$hub_display/manage-skills/SKILL.md\`.
 $end
+
 EOF
 }
 
@@ -163,6 +164,35 @@ append_block_once() {
     mv "$tmp" "$file"
     rm -f "$block_file"
     echo "updated: global rule refreshed in $file"
+    return
+  fi
+
+  if grep -q "manage-skills/SKILL.md" "$file" && grep -q "^## Shared Skill Installation$" "$file"; then
+    tmp="$(mktemp)"
+    awk -v heading="## Shared Skill Installation" -v block_file="$block_file" '
+      BEGIN {
+        while ((getline line < block_file) > 0) {
+          block = block line ORS
+        }
+      }
+      $0 == heading && !replaced {
+        printf "%s", block
+        in_block = 1
+        replaced = 1
+        next
+      }
+      in_block && /^## / {
+        in_block = 0
+        print
+        next
+      }
+      !in_block {
+        print
+      }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+    rm -f "$block_file"
+    echo "updated: legacy global rule refreshed in $file"
     return
   fi
 
