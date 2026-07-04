@@ -79,7 +79,8 @@ The installer:
 
 - copies `manage-skills` into the skills hub;
 - links it into Codex and Claude;
-- creates `bin/new-skill`, `bin/link-skill`, and `bin/migrate-skill`;
+- creates `bin/manage-skills`, `bin/install-skill`, `bin/new-skill`, `bin/link-skill`, and
+  `bin/migrate-skill`;
 - appends global shared-skill rules to Codex and Claude entry files when missing;
 - avoids overwriting existing real skill directories unless `--replace` is passed.
 
@@ -91,6 +92,28 @@ bash manage-skills/scripts/install --agents codex,claude
 ```
 
 ## Commands
+
+Install a skill from a GitHub tree URL:
+
+```bash
+~/.ai-skills/bin/install-skill https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+The shorter dispatcher form is:
+
+```bash
+~/.ai-skills/bin/manage-skills https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+When a user asks an agent `/manage-skills <url>` or "install this skill URL", the agent should run the same
+shared-hub install flow: install the canonical copy under `~/.ai-skills/<skill-name>`, then link it into the
+supported agents.
+
+Update an already installed skill:
+
+```bash
+~/.ai-skills/bin/install-skill --replace https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
 
 Create and link a new global shared skill:
 

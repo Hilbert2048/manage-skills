@@ -1,6 +1,6 @@
 ---
 name: manage-skills
-description: Manage AI coding-agent skills across global shared, project shared, agent-specific, and vendor layers. Use when creating, installing, linking, migrating, auditing, or deciding placement for reusable skills across Codex, Claude, Cursor, or other coding agents; when asked to avoid per-agent skill drift; or when a skill installer wants to write directly into one agent's private skill directory.
+description: Manage AI coding-agent skills across global shared, project shared, agent-specific, and vendor layers. Use when creating, installing, updating, linking, migrating, auditing, or deciding placement for reusable skills across Codex, Claude, Cursor, or other coding agents; when asked to install a skill from a GitHub URL, repo URL, tree URL, local folder, or "/manage-skills <url>"; when asked to avoid per-agent skill drift; or when a skill installer wants to write directly into one agent's private skill directory.
 ---
 
 # Manage Skills
@@ -29,14 +29,23 @@ the full skill content.
 
 1. Decide placement with `references/architecture.md`.
 2. If installing this management skill on a new machine, run `scripts/install`.
-3. For global shared skills, use `scripts/new-skill` or `scripts/link-skill`.
-4. For existing agent-private skills, migrate the canonical copy into the shared hub before linking.
-5. Keep agent-specific files as symlinks or thin adapters.
-6. For Cursor, create `.cursor/rules/*.mdc` adapters that point to shared or project docs.
+3. If installing a shared skill from a GitHub URL, GitHub tree URL, repo URL, or local folder, run
+   `scripts/install-skill <url-or-path>`.
+4. For global shared skills created locally, use `scripts/new-skill` or `scripts/link-skill`.
+5. For existing agent-private skills, migrate the canonical copy into the shared hub before linking.
+6. Keep agent-specific files as symlinks or thin adapters.
+7. For Cursor, create `.cursor/rules/*.mdc` adapters that point to shared or project docs.
+
+When a user asks `/manage-skills <url>` or "install this skill URL", treat it as a request to install that
+reusable skill into the shared hub first, then link it into supported agents. Do not copy reusable skills
+directly into only one agent-private directory unless the user explicitly confirms that intent.
 
 ## Scripts
 
 - `scripts/install`: one-command installer for the management skill itself.
+- `scripts/install-skill`: install one skill from a GitHub tree URL, a repo containing skill folders, or a
+  local skill directory, then link it into supported agents.
+- `scripts/manage-skills`: small command dispatcher; `manage-skills <url>` delegates to `install-skill`.
 - `scripts/new-skill`: scaffold a portable global shared skill and link it into supported agents.
 - `scripts/link-skill`: link an existing shared skill into supported agents.
 - `scripts/migrate-skill`: move an existing agent-private skill into the shared hub and replace agent copies

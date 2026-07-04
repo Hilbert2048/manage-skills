@@ -39,6 +39,8 @@ By default, installation creates:
 
 ```text
 ~/.ai-skills/manage-skills
+~/.ai-skills/bin/manage-skills
+~/.ai-skills/bin/install-skill
 ~/.ai-skills/bin/new-skill
 ~/.ai-skills/bin/link-skill
 ~/.ai-skills/bin/migrate-skill
@@ -69,6 +71,24 @@ GitHub Copilot coding agent or Chat, GLM / Zhipu coding agents, and Kimi /
 Moonshot coding agents.
 
 ## Commands
+
+Install a skill from a GitHub tree URL:
+
+```bash
+~/.ai-skills/bin/install-skill https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+The shorthand dispatcher works too:
+
+```bash
+~/.ai-skills/bin/manage-skills https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
+
+Update an already installed skill:
+
+```bash
+~/.ai-skills/bin/install-skill --replace https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+```
 
 Create and link a new global shared skill:
 
@@ -103,6 +123,8 @@ Scripts live in:
 
 ```text
 scripts/install
+scripts/install-skill
+scripts/manage-skills
 scripts/new-skill
 scripts/link-skill
 scripts/migrate-skill

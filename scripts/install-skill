@@ -1,0 +1,358 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: install-skill [--hub PATH] [--agents codex,claude] [--replace|--update] [--name NAME] <url-or-path>
+
+Installs reusable AI coding-agent skills into the shared hub, then links them into supported agents.
+
+Sources:
+  - GitHub tree URL: https://github.com/owner/repo/tree/main/path/to/skill
+  - GitHub repo URL: https://github.com/owner/repo
+  - Local skill dir:  /path/to/skill
+  - Local collection: /path/to/repo-with-skill-dirs
+
+Defaults:
+  hub:    $AI_SKILLS_HOME, or the parent directory of this manage-skills install
+  agents: codex,claude
+
+Examples:
+  install-skill https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+  install-skill --replace https://github.com/Hilbert2048/skills/tree/main/root-cause-first
+  install-skill --agents codex /path/to/root-cause-first
+USAGE
+}
+
+resolve_script() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+default_hub() {
+  if [[ -n "${AI_SKILLS_HOME:-}" ]]; then
+    printf '%s\n' "$AI_SKILLS_HOME"
+    return
+  fi
+  local script_dir skill_dir
+  script_dir="$(resolve_script)"
+  skill_dir="$(dirname "$script_dir")"
+  dirname "$skill_dir"
+}
+
+abs_path() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    cd -P "$path" >/dev/null 2>&1 && pwd
+  else
+    local dir base
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    printf '%s/%s\n' "$(cd -P "$dir" >/dev/null 2>&1 && pwd)" "$base"
+  fi
+}
+
+copy_dir() {
+  local source_dir="$1"
+  local target_dir="$2"
+  local parent temp
+  parent="$(dirname "$target_dir")"
+  mkdir -p "$parent"
+  temp="$parent/.install-skill.$$"
+  rm -rf "$temp"
+  mkdir -p "$temp"
+  (
+    cd "$source_dir"
+    tar -cf - \
+      --exclude='.git' \
+      --exclude='.DS_Store' \
+      --exclude='*/.DS_Store' \
+      .
+  ) | (
+    cd "$temp"
+    tar -xf -
+  )
+  mv "$temp" "$target_dir"
+}
+
+skill_name_from_dir() {
+  local skill_dir="$1"
+  local name
+  name="$(
+    sed -n '/^---[[:space:]]*$/,/^---[[:space:]]*$/ {
+      s/^name:[[:space:]]*//p
+    }' "$skill_dir/SKILL.md" | head -n 1
+  )"
+  name="${name#\"}"
+  name="${name%\"}"
+  name="${name#\'}"
+  name="${name%\'}"
+  if [[ -z "$name" ]]; then
+    name="$(basename "$skill_dir")"
+  fi
+  if [[ ! "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "Invalid skill name '$name' in $skill_dir/SKILL.md" >&2
+    return 1
+  fi
+  printf '%s\n' "$name"
+}
+
+parse_github_url() {
+  local url="$1"
+  local clean repo rest
+  clean="${url%%\?*}"
+  clean="${clean%%#*}"
+  clean="${clean%/}"
+
+  github_owner=""
+  github_repo=""
+  github_remote=""
+  github_rest=""
+
+  if [[ "$clean" =~ ^https://github\.com/([^/]+)/([^/]+)(/(tree|blob)/(.+))?$ ]]; then
+    github_owner="${BASH_REMATCH[1]}"
+    repo="${BASH_REMATCH[2]}"
+    github_rest="${BASH_REMATCH[5]:-}"
+  elif [[ "$clean" =~ ^git@github\.com:([^/]+)/([^/]+)(\.git)?$ ]]; then
+    github_owner="${BASH_REMATCH[1]}"
+    repo="${BASH_REMATCH[2]}"
+    github_rest=""
+  else
+    return 1
+  fi
+
+  github_repo="${repo%.git}"
+  github_remote="https://github.com/$github_owner/$github_repo.git"
+}
+
+git_clone_retry() {
+  local attempt max dest arg
+  attempt=1
+  max=3
+  dest=""
+  for arg in "$@"; do
+    dest="$arg"
+  done
+  while true; do
+    if git clone "$@" >/dev/null; then
+      return 0
+    fi
+    if [[ "$attempt" -ge "$max" ]]; then
+      return 1
+    fi
+    case "$dest" in
+      "$work_dir"/*) rm -rf "$dest" ;;
+    esac
+    echo "retry: git clone failed, retrying ($attempt/$max)..." >&2
+    sleep "$attempt"
+    attempt=$((attempt + 1))
+  done
+}
+
+infer_branch_and_subpath() {
+  local remote="$1"
+  local rest="$2"
+  local best branch ref line
+
+  github_branch=""
+  github_subpath=""
+
+  if [[ -z "$rest" ]]; then
+    return
+  fi
+
+  best=""
+  while IFS=$'\t' read -r _ ref; do
+    branch="${ref#refs/heads/}"
+    if [[ "$rest" == "$branch" || "$rest" == "$branch/"* ]]; then
+      if [[ ${#branch} -gt ${#best} ]]; then
+        best="$branch"
+      fi
+    fi
+  done < <(git ls-remote --heads "$remote" 2>/dev/null || true)
+
+  if [[ -n "$best" ]]; then
+    github_branch="$best"
+    github_subpath="${rest#"$best"}"
+    github_subpath="${github_subpath#/}"
+    return
+  fi
+
+  github_branch="${rest%%/*}"
+  github_subpath="${rest#"$github_branch"}"
+  github_subpath="${github_subpath#/}"
+}
+
+prepare_source_root() {
+  local source="$1"
+  local clone_dir
+
+  if [[ -d "$source" ]]; then
+    prepared_root="$(abs_path "$source")"
+    return
+  fi
+
+  if ! parse_github_url "$source"; then
+    echo "Unsupported source. Use a local directory or GitHub URL: $source" >&2
+    return 1
+  fi
+
+  infer_branch_and_subpath "$github_remote" "$github_rest"
+  clone_dir="$work_dir/repo"
+
+  if [[ -n "$github_subpath" ]]; then
+    if [[ -n "$github_branch" ]]; then
+      git_clone_retry --depth 1 --sparse --branch "$github_branch" "$github_remote" "$clone_dir"
+    else
+      git_clone_retry --depth 1 --sparse "$github_remote" "$clone_dir"
+    fi
+    git -C "$clone_dir" sparse-checkout set "$github_subpath" >/dev/null
+    prepared_root="$clone_dir/$github_subpath"
+  else
+    if [[ -n "$github_branch" ]]; then
+      git_clone_retry --depth 1 --branch "$github_branch" "$github_remote" "$clone_dir"
+    else
+      git_clone_retry --depth 1 "$github_remote" "$clone_dir"
+    fi
+    prepared_root="$clone_dir"
+  fi
+
+  if [[ ! -d "$prepared_root" ]]; then
+    echo "Source path not found after checkout: $prepared_root" >&2
+    return 1
+  fi
+}
+
+collect_skill_dirs() {
+  local root="$1"
+  local child count
+
+  skill_dirs=()
+  if [[ -f "$root/SKILL.md" ]]; then
+    skill_dirs+=("$root")
+    return
+  fi
+
+  count=0
+  for child in "$root"/*; do
+    if [[ -d "$child" && -f "$child/SKILL.md" ]]; then
+      skill_dirs+=("$child")
+      count=$((count + 1))
+    fi
+  done
+
+  if [[ "$count" -eq 0 ]]; then
+    echo "No skill found. Expected SKILL.md at $root/SKILL.md or immediate child skill directories." >&2
+    return 1
+  fi
+}
+
+install_one_skill() {
+  local source_dir="$1"
+  local name target
+
+  if [[ -n "$name_override" ]]; then
+    name="$name_override"
+  else
+    name="$(skill_name_from_dir "$source_dir")"
+  fi
+
+  target="$hub/$name"
+  if [[ -e "$target" ]]; then
+    if [[ "$replace" -eq 1 ]]; then
+      rm -rf "$target"
+      copy_dir "$source_dir" "$target"
+      echo "replaced: $target"
+    else
+      echo "ok: $target already exists"
+      echo "    pass --replace or --update to refresh it"
+    fi
+  else
+    copy_dir "$source_dir" "$target"
+    echo "installed: $target"
+  fi
+
+  "$hub/manage-skills/scripts/link-skill" --hub "$hub" --agents "$agents" "$name"
+}
+
+hub="$(default_hub)"
+agents="codex,claude"
+replace=0
+name_override=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hub)
+      hub="$2"
+      shift 2
+      ;;
+    --agents)
+      agents="$2"
+      shift 2
+      ;;
+    --replace|--update)
+      replace=1
+      shift
+      ;;
+    --name)
+      name_override="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -ne 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
+if [[ -n "$name_override" && ! "$name_override" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  echo "Invalid --name value: $name_override" >&2
+  exit 2
+fi
+
+hub="$(abs_path "$hub")"
+if [[ ! -x "$hub/manage-skills/scripts/link-skill" ]]; then
+  echo "Missing manage-skills link command: $hub/manage-skills/scripts/link-skill" >&2
+  echo "Install manage-skills first, or pass --hub to the skills hub that contains it." >&2
+  exit 1
+fi
+
+work_dir="$(mktemp -d)"
+trap 'rm -rf "$work_dir"' EXIT
+
+prepared_root=""
+skill_dirs=()
+prepare_source_root "$1"
+collect_skill_dirs "$prepared_root"
+
+if [[ -n "$name_override" && ${#skill_dirs[@]} -ne 1 ]]; then
+  echo "--name can only be used when the source resolves to exactly one skill." >&2
+  exit 2
+fi
+
+for skill_dir in "${skill_dirs[@]}"; do
+  install_one_skill "$skill_dir"
+done

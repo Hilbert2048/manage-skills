@@ -78,29 +78,20 @@ copy_skill() {
 ensure_bin_links() {
   local hub="$1"
   mkdir -p "$hub/bin"
+  ln -sfn "../manage-skills/scripts/manage-skills" "$hub/bin/manage-skills"
+  ln -sfn "../manage-skills/scripts/install-skill" "$hub/bin/install-skill"
   ln -sfn "../manage-skills/scripts/link-skill" "$hub/bin/link-skill"
   ln -sfn "../manage-skills/scripts/new-skill" "$hub/bin/new-skill"
   ln -sfn "../manage-skills/scripts/migrate-skill" "$hub/bin/migrate-skill"
   ln -sfn "../manage-skills/scripts/install" "$hub/bin/install-manage-skills"
 }
 
-append_block_once() {
-  local file="$1"
-  local title="$2"
-  local hub_display="$3"
+render_global_rule_block() {
+  local hub_display="$1"
   local start="<!-- manage-skills:shared-skill-installation:start -->"
   local end="<!-- manage-skills:shared-skill-installation:end -->"
 
-  mkdir -p "$(dirname "$file")"
-  touch "$file"
-
-  if grep -q "$start" "$file" || grep -q "manage-skills/SKILL.md" "$file"; then
-    echo "ok: global rule already present in $file"
-    return
-  fi
-
-  cat >> "$file" <<EOF
-
+  cat <<EOF
 $start
 ## Shared Skill Installation
 
@@ -108,7 +99,20 @@ Reusable or cross-project skills MUST be installed once under \`$hub_display/<sk
 agent-specific directories. Do not install a reusable skill directly into only one agent's private skill
 directory unless the user confirms that it is tool-specific.
 
-Use:
+When the user asks to install a skill from a GitHub URL, GitHub tree URL, repository URL, local folder, or a
+\`/manage-skills <url>\` style prompt, use:
+
+\`\`\`bash
+$hub_display/bin/install-skill <url-or-path>
+\`\`\`
+
+For an explicit update or replacement, use:
+
+\`\`\`bash
+$hub_display/bin/install-skill --replace <url-or-path>
+\`\`\`
+
+For locally authored skills, use:
 
 \`\`\`bash
 $hub_display/bin/new-skill <skill-name> "Description"
@@ -119,6 +123,60 @@ Agent directories should normally be symlinks to the shared source. The canonica
 \`$hub_display/manage-skills/SKILL.md\`.
 $end
 EOF
+}
+
+append_block_once() {
+  local file="$1"
+  local title="$2"
+  local hub_display="$3"
+  local start="<!-- manage-skills:shared-skill-installation:start -->"
+  local end="<!-- manage-skills:shared-skill-installation:end -->"
+  local block_file tmp
+
+  mkdir -p "$(dirname "$file")"
+  touch "$file"
+
+  block_file="$(mktemp)"
+  render_global_rule_block "$hub_display" > "$block_file"
+
+  if grep -q "$start" "$file" && grep -q "$end" "$file"; then
+    tmp="$(mktemp)"
+    awk -v start="$start" -v end="$end" -v block_file="$block_file" '
+      BEGIN {
+        while ((getline line < block_file) > 0) {
+          block = block line ORS
+        }
+      }
+      $0 == start {
+        printf "%s", block
+        in_block = 1
+        next
+      }
+      $0 == end {
+        in_block = 0
+        next
+      }
+      !in_block {
+        print
+      }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+    rm -f "$block_file"
+    echo "updated: global rule refreshed in $file"
+    return
+  fi
+
+  if grep -q "manage-skills/SKILL.md" "$file"; then
+    echo "ok: global rule-like content already present in $file; add markers before automatic refresh" >&2
+    rm -f "$block_file"
+    return
+  fi
+
+  {
+    echo
+    cat "$block_file"
+  } >> "$file"
+  rm -f "$block_file"
 
   echo "updated: $file"
 }
@@ -222,6 +280,8 @@ echo
 echo "manage-skills installed."
 echo "hub: $(display_path "$hub")"
 echo "commands:"
+echo "  $(display_path "$hub")/bin/manage-skills"
+echo "  $(display_path "$hub")/bin/install-skill"
 echo "  $(display_path "$hub")/bin/new-skill"
 echo "  $(display_path "$hub")/bin/link-skill"
 echo "  $(display_path "$hub")/bin/migrate-skill"

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  manage-skills <skill-url-or-path>
+  manage-skills install <skill-url-or-path>
+  manage-skills update <skill-url-or-path>
+  manage-skills link <skill-name>
+  manage-skills new <skill-name> "Description"
+  manage-skills migrate --from codex|claude <skill-name>
+
+This is a small dispatcher around the manage-skills scripts.
+USAGE
+}
+
+resolve_script() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+script_dir="$(resolve_script)"
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 0
+fi
+
+case "$1" in
+  install|install-skill)
+    shift
+    exec "$script_dir/install-skill" "$@"
+    ;;
+  update)
+    shift
+    exec "$script_dir/install-skill" --replace "$@"
+    ;;
+  link|link-skill)
+    shift
+    exec "$script_dir/link-skill" "$@"
+    ;;
+  new|new-skill)
+    shift
+    exec "$script_dir/new-skill" "$@"
+    ;;
+  migrate|migrate-skill)
+    shift
+    exec "$script_dir/migrate-skill" "$@"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    exec "$script_dir/install-skill" "$@"
+    ;;
+esac
