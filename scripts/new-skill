@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: new-skill [--hub PATH] [--agents codex,claude] [--no-link] <skill-name> [description...]
+
+Creates <hub>/<skill-name>/SKILL.md as a portable shared skill.
+
+Example:
+  new-skill flutter-widget-goldens "Validate Flutter golden and screenshot tests"
+USAGE
+}
+
+script_dir() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+default_hub() {
+  if [[ -n "${AI_SKILLS_HOME:-}" ]]; then
+    printf '%s\n' "$AI_SKILLS_HOME"
+    return
+  fi
+  dirname "$(dirname "$(script_dir)")"
+}
+
+abs_path() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    cd -P "$path" >/dev/null 2>&1 && pwd
+  else
+    local dir base
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    printf '%s/%s\n' "$(cd -P "$dir" >/dev/null 2>&1 && pwd)" "$base"
+  fi
+}
+
+hub="$(default_hub)"
+agents="codex,claude"
+link_after=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hub)
+      hub="$2"
+      shift 2
+      ;;
+    --agents)
+      agents="$2"
+      shift 2
+      ;;
+    --no-link)
+      link_after=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -lt 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
+skill_name="$1"
+shift
+description="${*:-TODO: describe what this skill does and when to use it.}"
+
+if [[ ! "$skill_name" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  echo "Skill name must be kebab-case: $skill_name" >&2
+  exit 1
+fi
+
+hub="$(abs_path "$hub")"
+skill_dir="$hub/$skill_name"
+
+if [[ -e "$skill_dir" ]]; then
+  echo "Skill already exists: $skill_dir" >&2
+  exit 1
+fi
+
+mkdir -p "$skill_dir/references"
+
+title="$(echo "$skill_name" | tr '-' ' ' | awk '{ for (i=1; i<=NF; i++) $i=toupper(substr($i,1,1)) substr($i,2); print }')"
+
+cat > "$skill_dir/SKILL.md" <<EOF
+---
+name: $skill_name
+description: $description
+---
+
+# $title
+
+## Workflow
+
+1. Inspect the project context and existing conventions.
+2. Choose the smallest reliable implementation and validation path.
+3. Prefer production paths over copied or lookalike logic.
+4. Report commands run, pass/fail status, mocks or overrides, and residual risk.
+
+## References
+
+- Add focused reference files under \`references/\` only when the skill needs them.
+EOF
+
+if [[ "$link_after" -eq 1 ]]; then
+  "$(script_dir)/link-skill" --hub "$hub" --agents "$agents" "$skill_name"
+fi
+
+echo "created: $skill_dir"

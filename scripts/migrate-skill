@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: migrate-skill --from codex|claude [--hub PATH] [--agents codex,claude] <skill-name>
+
+Moves an existing agent-private skill directory into the shared hub and links supported agents to it.
+The source must be a real directory, not a symlink.
+USAGE
+}
+
+script_dir() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+default_hub() {
+  if [[ -n "${AI_SKILLS_HOME:-}" ]]; then
+    printf '%s\n' "$AI_SKILLS_HOME"
+    return
+  fi
+  dirname "$(dirname "$(script_dir)")"
+}
+
+abs_path() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    cd -P "$path" >/dev/null 2>&1 && pwd
+  else
+    local dir base
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    printf '%s/%s\n' "$(cd -P "$dir" >/dev/null 2>&1 && pwd)" "$base"
+  fi
+}
+
+from_agent=""
+hub="$(default_hub)"
+agents="codex,claude"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from)
+      from_agent="$2"
+      shift 2
+      ;;
+    --hub)
+      hub="$2"
+      shift 2
+      ;;
+    --agents)
+      agents="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ -z "$from_agent" || $# -ne 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
+skill_name="$1"
+
+case "$from_agent" in
+  codex) source_dir="$HOME/.codex/skills/$skill_name" ;;
+  claude) source_dir="$HOME/.claude/skills/$skill_name" ;;
+  *)
+    echo "Unsupported source agent: $from_agent" >&2
+    exit 2
+    ;;
+esac
+
+if [[ -L "$source_dir" ]]; then
+  echo "Source is already a symlink: $source_dir -> $(readlink "$source_dir")" >&2
+  exit 1
+fi
+
+if [[ ! -d "$source_dir" || ! -f "$source_dir/SKILL.md" ]]; then
+  echo "Missing source skill directory: $source_dir" >&2
+  exit 1
+fi
+
+hub="$(abs_path "$hub")"
+target_dir="$hub/$skill_name"
+
+if [[ -e "$target_dir" ]]; then
+  echo "Target already exists: $target_dir" >&2
+  exit 1
+fi
+
+mkdir -p "$hub"
+mv "$source_dir" "$target_dir"
+"$(script_dir)/link-skill" --hub "$hub" --agents "$agents" "$skill_name"
+echo "migrated: $source_dir -> $target_dir"

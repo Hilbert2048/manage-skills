@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: link-skill [--hub PATH] [--agents codex,claude] <skill-name>
+
+Links <hub>/<skill-name> into supported agent skill directories.
+
+Defaults:
+  hub:    $AI_SKILLS_HOME, or the parent directory of this skill
+  agents: codex,claude
+
+The command is non-destructive:
+  - existing matching symlinks are left alone
+  - existing real directories are skipped
+  - mismatched symlinks are reported
+USAGE
+}
+
+resolve_script() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+default_hub() {
+  if [[ -n "${AI_SKILLS_HOME:-}" ]]; then
+    printf '%s\n' "$AI_SKILLS_HOME"
+    return
+  fi
+  local script_dir skill_dir
+  script_dir="$(resolve_script)"
+  skill_dir="$(dirname "$script_dir")"
+  dirname "$skill_dir"
+}
+
+abs_path() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    cd -P "$path" >/dev/null 2>&1 && pwd
+  else
+    local dir base
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    printf '%s/%s\n' "$(cd -P "$dir" >/dev/null 2>&1 && pwd)" "$base"
+  fi
+}
+
+hub="$(default_hub)"
+agents="codex,claude"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hub)
+      hub="$2"
+      shift 2
+      ;;
+    --agents)
+      agents="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -ne 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
+skill_name="$1"
+hub="$(abs_path "$hub")"
+source_dir="$hub/$skill_name"
+
+if [[ ! -f "$source_dir/SKILL.md" ]]; then
+  echo "Missing shared skill: $source_dir/SKILL.md" >&2
+  exit 1
+fi
+
+link_one() {
+  local agent="$1"
+  local target
+
+  case "$agent" in
+    codex) target="$HOME/.codex/skills/$skill_name" ;;
+    claude) target="$HOME/.claude/skills/$skill_name" ;;
+    *)
+      echo "skip: unsupported agent '$agent'" >&2
+      return
+      ;;
+  esac
+
+  mkdir -p "$(dirname "$target")"
+
+  if [[ -L "$target" ]]; then
+    local current current_abs
+    current="$(readlink "$target")"
+    if [[ "$current" == /* ]]; then
+      current_abs="$current"
+    else
+      current_abs="$(abs_path "$(dirname "$target")/$current")"
+    fi
+    if [[ "$current_abs" == "$source_dir" ]]; then
+      echo "ok: $target -> $source_dir"
+      return
+    fi
+    echo "skip: $target is a symlink to $current" >&2
+    return
+  fi
+
+  if [[ -e "$target" ]]; then
+    echo "skip: $target already exists as a real file/directory" >&2
+    return
+  fi
+
+  ln -s "$source_dir" "$target"
+  echo "linked: $target -> $source_dir"
+}
+
+IFS=',' read -r -a agent_list <<< "$agents"
+for agent in "${agent_list[@]}"; do
+  link_one "$agent"
+done

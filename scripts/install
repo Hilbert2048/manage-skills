@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: install [--hub PATH] [--agents codex,claude] [--no-rules] [--replace]
+
+Installs the manage-skills skill into a shared skills hub, links it into supported agents,
+creates convenience commands, and adds global agent rules.
+
+Typical use after cloning or downloading this skill:
+  bash manage-skills/scripts/install
+
+Options:
+  --hub PATH             Skills hub to install into. Default: $AI_SKILLS_HOME or ~/.ai-skills
+  --agents LIST          Comma-separated agents to link. Default: codex,claude
+  --no-rules             Do not update global AGENTS.md / CLAUDE.md files
+  --replace              Replace an existing hub copy of manage-skills
+  -h, --help             Show this help
+USAGE
+}
+
+resolve_script_dir() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+abs_path() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    cd -P "$path" >/dev/null 2>&1 && pwd
+  else
+    local dir base
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    printf '%s/%s\n' "$(cd -P "$dir" >/dev/null 2>&1 && pwd)" "$base"
+  fi
+}
+
+display_path() {
+  local path="$1"
+  case "$path" in
+    "$HOME") printf '~\n' ;;
+    "$HOME"/*) printf '~/%s\n' "${path#"$HOME"/}" ;;
+    *) printf '%s\n' "$path" ;;
+  esac
+}
+
+copy_skill() {
+  local source_dir="$1"
+  local target_dir="$2"
+  local parent temp
+  parent="$(dirname "$target_dir")"
+  mkdir -p "$parent"
+  temp="$parent/.manage-skills.install.$$"
+  rm -rf "$temp"
+  mkdir -p "$temp"
+  (
+    cd "$source_dir"
+    tar -cf - \
+      --exclude='.git' \
+      --exclude='.DS_Store' \
+      --exclude='*/.DS_Store' \
+      .
+  ) | (
+    cd "$temp"
+    tar -xf -
+  )
+  mv "$temp" "$target_dir"
+}
+
+ensure_bin_links() {
+  local hub="$1"
+  mkdir -p "$hub/bin"
+  ln -sfn "../manage-skills/scripts/link-skill" "$hub/bin/link-skill"
+  ln -sfn "../manage-skills/scripts/new-skill" "$hub/bin/new-skill"
+  ln -sfn "../manage-skills/scripts/migrate-skill" "$hub/bin/migrate-skill"
+  ln -sfn "../manage-skills/scripts/install" "$hub/bin/install-manage-skills"
+}
+
+append_block_once() {
+  local file="$1"
+  local title="$2"
+  local hub_display="$3"
+  local start="<!-- manage-skills:shared-skill-installation:start -->"
+  local end="<!-- manage-skills:shared-skill-installation:end -->"
+
+  mkdir -p "$(dirname "$file")"
+  touch "$file"
+
+  if grep -q "$start" "$file" || grep -q "manage-skills/SKILL.md" "$file"; then
+    echo "ok: global rule already present in $file"
+    return
+  fi
+
+  cat >> "$file" <<EOF
+
+$start
+## Shared Skill Installation
+
+Reusable or cross-project skills MUST be installed once under \`$hub_display/<skill-name>\` and linked into
+agent-specific directories. Do not install a reusable skill directly into only one agent's private skill
+directory unless the user confirms that it is tool-specific.
+
+Use:
+
+\`\`\`bash
+$hub_display/bin/new-skill <skill-name> "Description"
+$hub_display/bin/link-skill <skill-name>
+\`\`\`
+
+Agent directories should normally be symlinks to the shared source. The canonical management skill is
+\`$hub_display/manage-skills/SKILL.md\`.
+$end
+EOF
+
+  echo "updated: $file"
+}
+
+install_rules() {
+  local agents="$1"
+  local hub_display="$2"
+  IFS=',' read -r -a agent_list <<< "$agents"
+  for agent in "${agent_list[@]}"; do
+    case "$agent" in
+      codex)
+        append_block_once "$HOME/.codex/AGENTS.md" "Codex" "$hub_display"
+        ;;
+      claude)
+        append_block_once "$HOME/.claude/CLAUDE.md" "Claude" "$hub_display"
+        ;;
+      *)
+        echo "skip: no global rule writer for unsupported agent '$agent'" >&2
+        ;;
+    esac
+  done
+}
+
+hub="${AI_SKILLS_HOME:-$HOME/.ai-skills}"
+agents="codex,claude"
+write_rules=1
+replace=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hub)
+      hub="$2"
+      shift 2
+      ;;
+    --agents)
+      agents="$2"
+      shift 2
+      ;;
+    --no-rules)
+      write_rules=0
+      shift
+      ;;
+    --replace)
+      replace=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+script_dir="$(resolve_script_dir)"
+source_skill_dir="$(dirname "$script_dir")"
+
+if [[ ! -f "$source_skill_dir/SKILL.md" ]]; then
+  echo "Cannot find manage-skills/SKILL.md near installer: $source_skill_dir" >&2
+  exit 1
+fi
+
+hub="$(abs_path "$hub")"
+target_skill_dir="$hub/manage-skills"
+source_abs="$(abs_path "$source_skill_dir")"
+target_abs="$target_skill_dir"
+
+if [[ -e "$target_skill_dir" ]]; then
+  target_abs="$(abs_path "$target_skill_dir")"
+fi
+
+if [[ "$source_abs" == "$target_abs" ]]; then
+  echo "ok: manage-skills already lives at $target_skill_dir"
+elif [[ -e "$target_skill_dir" ]]; then
+  if [[ "$replace" -eq 1 ]]; then
+    rm -rf "$target_skill_dir"
+    copy_skill "$source_abs" "$target_skill_dir"
+    echo "replaced: $target_skill_dir"
+  else
+    echo "ok: using existing $target_skill_dir"
+    echo "     pass --replace to replace it with $source_abs"
+  fi
+else
+  copy_skill "$source_abs" "$target_skill_dir"
+  echo "installed: $target_skill_dir"
+fi
+
+chmod +x "$target_skill_dir"/scripts/* 2>/dev/null || true
+ensure_bin_links "$hub"
+"$target_skill_dir/scripts/link-skill" --hub "$hub" --agents "$agents" manage-skills
+
+if [[ "$write_rules" -eq 1 ]]; then
+  install_rules "$agents" "$(display_path "$hub")"
+fi
+
+echo
+echo "manage-skills installed."
+echo "hub: $(display_path "$hub")"
+echo "commands:"
+echo "  $(display_path "$hub")/bin/new-skill"
+echo "  $(display_path "$hub")/bin/link-skill"
+echo "  $(display_path "$hub")/bin/migrate-skill"
